@@ -1,4 +1,4 @@
-package data_handling
+package csv_handling
 
 import (
 	"encoding/csv"

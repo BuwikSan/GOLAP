@@ -1,4 +1,4 @@
-package data_handling
+package db
 
 import (
 	"database/sql"
@@ -122,7 +122,7 @@ func fillPostgresWithCars(db *sql.DB) {
 
 		// INSERT FAKTU (opět přes tx)
 		_, err = tx.Exec(`INSERT INTO fact_sales(
-			vin, year_id, make_id, model_id, trim_id, body_id, transmission_id, 
+			vin, year_id, make_id, model_id, trim_id, body_id, transmission_id,
 			color_id, interior_id, odometer, condition, mmr, seller, selling_price
 		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT DO NOTHING`,
 			vin, yearID, makeID, modelID, trimID, bodyID, transmissionID,

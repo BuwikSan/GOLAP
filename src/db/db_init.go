@@ -1,4 +1,4 @@
-package db_handling
+package db
 
 import (
 	"database/sql"
