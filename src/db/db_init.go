@@ -5,62 +5,76 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
+
+	. "golap-benchmark/src"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	_ "github.com/marcboeker/go-duckdb"
 )
 
-// Database connections -------------------------------------------------
-func openDBConnection(DBType string) *sql.DB {
-	/*initialize selected database and return connection*/
-	// Otevři DuckDB spojení
-	pgxConnStr := "host=172.25.254.161 port=5432 user=user dbname=benchmark_db sslmode=disable"
-	duckDBPath := "src/data_handling/db_files/DuckDB.db"
+// Obtain Conn
+func ObtainDuckDBConnection() SQLOverhead {
+	/* Creates connection to DuckDB database and returns it. */
+	// db := openDBConnection("duckdb")
+	cmd := exec.Command("src/db/db_files/duckdb.exe", "src/db/db_files/DuckDB.db", "-c", "SELECT 1;")
 
-	var DBInterface string
-	switch DBType {
-	case "duckdb":
-		DBInterface = fmt.Sprintf("file:%s", duckDBPath)
-
-		_, err := os.Stat(duckDBPath)
-		if os.IsNotExist(err) {
-			_, err := os.Create(duckDBPath)
-			if err != nil {
-				log.Fatal("Nelze vytvořit DuckDB soubor:", err)
-			}
-		}
-	case "pgx":
-		DBInterface = pgxConnStr
+	// Zachytíme výstup pro případ chyby
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Fatalf("DuckDB inicializace selhala: %v\nVýstup: %s", err, string(output))
 	}
 
-	db, err := sql.Open(DBType, DBInterface)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// Ping - ověř, že funguje
-	err = db.Ping()
-	if err != nil {
-		log.Fatal(err)
+	db := &DuckDBOverhead{
+		Path:    "src/db/db_files/DuckDB.db",
+		BinPath: "src/db/db_files/duckdb.exe",
 	}
 
 	fmt.Println("DuckDB connected!")
 	return db
 }
 
-// Database Drops -------------------------------------------------
-func dropDuckDB(db *sql.DB) {
-	/*drop all content from duckDB database*/
-	_, err := db.Exec("DROP TABLE IF EXISTS raw_sales")
+func ObtainPostgresConnection() SQLOverhead {
+	/* Creates connection to PostgreSQL database and returns it. */
+	// db := openDBConnection("pgx")
+	dbHost := os.Getenv("DB_HOST")
+	if dbHost == "" {
+		dbHost = "localhost" // defaultní hodnota
+	}
+	pgxConnStr := fmt.Sprintf("host=%s port=5432 user=user password=password dbname=benchmark_db sslmode=disable", dbHost)
+
+	pg, err := sql.Open("pgx", pgxConnStr)
 	if err != nil {
-		log.Fatal("Nelze smazat tabulku raw_sales v DuckDB:", err)
+		log.Fatal(err)
+	}
+
+	// Ping - ověř, že funguje
+	err = pg.Ping()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	db := &PostgresOverhead{pg}
+	fmt.Println("PostgreSQL connected!")
+	return db
+}
+
+// Database Drops -------------------------------------------------
+func dropDuckDB(db SQLOverhead) {
+	/*drop all content from duckDB database*/
+	err := db.RunRaw("DROP TABLE IF EXISTS raw_sales")
+	if err != nil {
+		log.Fatal("Nelze smazat tabulku raw_sales v DuckDB: ", err)
+	}
+	err = db.RunRaw("DROP SEQUENCE IF EXISTS id_sequence")
+	if err != nil {
+		log.Fatal("Nelze smazat tabulku raw_sales v DuckDB: ", err)
 	}
 }
 
-func dropPostgres(db *sql.DB) {
+func dropPostgres(db SQLOverhead) {
 	/*drop all content from PostgreSQL database*/
 	dropTables := func(name string) {
-		_, err := db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s CASCADE", name))
+		err := db.RunRaw(fmt.Sprintf("DROP TABLE IF EXISTS %s CASCADE", name))
 		if err != nil {
 			log.Fatalf("Nelze smazat tabulku %s: %v", name, err)
 		}
@@ -77,7 +91,7 @@ func dropPostgres(db *sql.DB) {
 }
 
 // Schema initialization -------------------------------------------------
-func initSchema(db *sql.DB, schemaName string) {
+func initSchema(db SQLOverhead, schemaName string) {
 	/*initialize schema for selected database*/
 	// 1. Načti schema.sql soubor
 	path := fmt.Sprintf("./src/db/db_schemas/%s_schema.sql", schemaName)
@@ -89,30 +103,25 @@ func initSchema(db *sql.DB, schemaName string) {
 	// 2. Převeď na string
 	schema := string(schemaFile)
 	// 3. Spusť SQL příkazy
-	_, err = db.Exec(schema)
+	err = db.RunRaw(schema)
 	if err != nil {
-		log.Fatal("Nelze spustit schema.sql:", err)
+		log.Fatal("Nelze spustit schema.sql: ", err)
 	}
-
 	fmt.Println(schemaName + " schema initialized!")
 }
 
 // Database initializations -------------------------------------------------
 
-func InitDuckDBConnection() *sql.DB {
-	/* Creates connection to DuckDB database and returns it. */
-	db := openDBConnection("duckdb")
-	fmt.Println("DuckDB connected!")
+func InitDuckDBConnection() SQLOverhead {
+	db := ObtainDuckDBConnection()
 	dropDuckDB(db)
 	fmt.Println("DuckDB data dropped!")
 	initSchema(db, "duckDB")
 	return db
 }
 
-func InitPostgresConnection() *sql.DB {
-	/* Creates connection to PostgreSQL database and returns it. */
-	db := openDBConnection("pgx")
-	fmt.Println("PostgreSQL connected!")
+func InitPostgresConnection() SQLOverhead {
+	db := ObtainPostgresConnection()
 	dropPostgres(db)
 	fmt.Println("PostgreSQL data dropped!")
 	initSchema(db, "postgres")

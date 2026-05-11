@@ -1,16 +1,25 @@
+CREATE SEQUENCE id_sequence START 1;
+
 CREATE TABLE IF NOT EXISTS raw_sales (
-    vin VARCHAR(17) PRIMARY KEY,
-    year INTEGER NOT NULL,
-    make VARCHAR NOT NULL,
-    model VARCHAR NOT NULL,
-    trim VARCHAR NOT NULL,
-    body VARCHAR NOT NULL,
-    transmission VARCHAR NOT NULL,
-    color VARCHAR NOT NULL,
-    interior VARCHAR NOT NULL,
-    selling_price INTEGER NOT NULL,
-    mmr INTEGER NOT NULL,
-    seller VARCHAR NOT NULL,
-    odometer INTEGER NOT NULL,
-    condition NUMERIC(3, 2) NOT NULL CHECK (condition >= 0 AND condition <= 5)
+    id INTEGER NOT NULL DEFAULT nextval('id_sequence') PRIMARY KEY,
+    vin VARCHAR(17),
+    year_int INTEGER,
+    make VARCHAR,
+    model VARCHAR,
+    trim VARCHAR,
+    body VARCHAR,
+    transmission VARCHAR,
+    color VARCHAR,
+    interior VARCHAR,
+    selling_price INTEGER,
+    mmr INTEGER,
+    seller VARCHAR,
+    odometer INTEGER,
+    condition NUMERIC(3, 2) CHECK (
+        (
+            condition >= 0
+            AND condition <= 5
+        )
+        OR (NULL)
+    )
 );

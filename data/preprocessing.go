@@ -1,16 +1,69 @@
-package csv_handling
+package data
 
 import (
 	"encoding/csv"
+	"fmt"
 	"io"
 	"log"
 	"os"
+	"strings"
+
+	. "golap-benchmark/src"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	_ "github.com/marcboeker/go-duckdb"
 )
 
-func preprocessCSV() {
+func TableAsStringToCSV(content string, dbType SQLOverhead, newFilePathAndName string) error {
+	outFile, err := os.Create(newFilePathAndName)
+	if err != nil {
+		return fmt.Errorf("nelze vytvořit soubor %s: %v", newFilePathAndName, err)
+	}
+	defer outFile.Close()
+
+	writer := csv.NewWriter(outFile)
+	defer writer.Flush()
+
+	// Určit separator podle typu databáze
+	var separator rune
+	switch dbType.(type) {
+	case *PostgresOverhead:
+		// PostgreSQL vrací tab-separated values
+		separator = '\t'
+	case *DuckDBOverhead:
+		// DuckDB vrací pipe-separated values
+		separator = '|'
+	default:
+		return fmt.Errorf("neznámý typ databáze: %T", dbType)
+	}
+
+	// Zparsuj obsah podle separatoru
+	reader := csv.NewReader(strings.NewReader(content))
+	reader.Comma = separator
+
+	// Čti řádky a piš do CSV
+	for {
+		record, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("chyba při čtení řádku: %v", err)
+		}
+
+		// Trimuj whitespace z každého pole (pro tab-separated z Postgresu)
+		for i := range record {
+			record[i] = strings.TrimSpace(record[i])
+		}
+
+		if err := writer.Write(record); err != nil {
+			return fmt.Errorf("chyba při zápisu do CSV: %v", err)
+		}
+	}
+
+	return nil
+}
+
+func PreprocessCSV() {
 	/*data cleaning*/
 	// Otevři original CSV
 	file, err := os.Open("./data/cars.csv")
@@ -51,6 +104,15 @@ func preprocessCSV() {
 			log.Fatal("Chyba při čtení CSV:", err)
 		}
 		recordClean := []string{record[6], record[0], record[1], record[2], record[3], record[4], record[5], record[10], record[11], record[14], record[13], record[12], record[9], record[8]}
+
+		// NAHRAĎ prázdné stringy na "UNKNOWN" (ale ne pro čísla!)
+		// Index 12 = odometer, index 13 = condition (obojí čísla - nechej prázdné)
+		for i, val := range recordClean {
+			if val == "" && i != 12 && i != 13 {
+				recordClean[i] = "UNKNOWN"
+			}
+		}
+
 		err = writer.Write(recordClean)
 		if err != nil {
 			log.Fatal("Nelze zapsat řádek do clean CSV:", err)
