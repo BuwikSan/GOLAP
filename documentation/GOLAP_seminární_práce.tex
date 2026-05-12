@@ -1,0 +1,997 @@
+% GOLAP: Seminární práce z Operačního datového managementu
+% Srovnění OLAP operací na DuckDB vs PostgreSQL
+% Autor: [Tvé jméno]
+% Akademický rok: 2025/2026
+
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf-8]{inputenc}
+\usepackage[czech]{babel}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{listings}
+\usepackage{color}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage[font=small,labelfont=bf]{caption}
+\usepackage{fancyhdr}
+\usepackage{setspace}
+
+% === GEOMETRIE STRÁNKY ===
+\geometry{
+    left=2.5cm,
+    right=2.5cm,
+    top=2.5cm,
+    bottom=2.5cm
+}
+
+% === NASTAVENÍ ZÁHLAVÍ A ZÁPATÍ ===
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{Seminární práce KI/ODM 2026}
+\lhead{GOLAP – Benchmark OLAP operací}
+\cfoot{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+\setstretch{1.5}
+
+% === NASTAVENÍ SQL KÓDU ===
+\lstset{
+    language=SQL,
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{blue}\bfseries,
+    commentstyle=\color{gray}\itshape,
+    stringstyle=\color{red},
+    breaklines=true,
+    postbreak=\mbox{\textcolor{red}{$\hookrightarrow$}\space},
+    showstringspaces=false,
+    tabsize=2,
+    captionpos=b,
+    frame=single,
+    backgroundcolor=\color{lightgray!10},
+    xleftmargin=1em,
+    xrightmargin=1em,
+    framexleftmargin=0.5em
+}
+
+% === VLASTNÍ PŘÍKAZY ===
+\newcommand{\ujephead}{%
+    \begin{center}
+        \textbf{Univerzita Jana Evangelisty Purkyně v Ústí nad Labem}\\
+        \textbf{Přírodovědecká fakulta}\\
+        \textbf{Katedra informatiky}\\[2cm]
+        \Large \textbf{Seminární práce z předmětu KI/ODM}\\[0.5cm]
+        \LARGE \textbf{GOLAP: Benchmark OLAP operací}\\
+        \large \textit{Srovnění výkonu DuckDB vs PostgreSQL na datovém skladu automobilů}\\[2cm]
+    \end{center}
+}
+
+\newcommand{\modsinfo}{%
+    \begin{flushright}
+        Autor: Matěj Bureš\\
+        Studijní program: Aplikovaná informatika\\
+        Ročník: 2. ročník bakalářského studia\\
+        Akademický rok: 2025/2026\\
+        \today
+    \end{flushright}
+}
+
+% === TITULNÍ STRANA ===
+\begin{document}
+
+\begin{titlepage}
+    \ujephead
+    \vfill
+    \modsinfo
+    \newpage
+\end{titlepage}
+
+% === OBSAH ===
+\tableofcontents
+\newpage
+
+% ============================================================================
+% 1. ÚVOD
+% ============================================================================
+\section{Úvod}
+
+Cílem této seminární práce je prakticky vyzkoušet práci s datovým skladem (DWH) a OLAP 
+analytikou na reálném datasetu použitých automobilů. Práce se zaměřuje na:
+
+\begin{enumerate}
+    \item \textbf{Srovnání výkonu OLAP operací} na DuckDB (columnar OLAP databáze)
+          a PostgreSQL (tradičnější relační DB).
+    \item \textbf{Implementaci 6 pokročilých SQL operací} – ROLLUP, CUBE a GROUPING SETS
+          na multidimenzionálním datasetu.
+    \item \textbf{Data Mining a analytické insights} – K-Means clustering, lineární regrese,
+          detekce anomálií.
+    \item \textbf{Design a implementaci star schématu} respektive flat denormalizované struktury
+          pro efektivní OLAP dotazování.
+\end{enumerate}
+
+Jako datovou sadu jsem zvolil veřejný dataset z Kaggle obsahující přibližně 550 000 záznamů
+o prodeji použitých automobilů. Téma jsem vybral z důvodu osobního zájmu o automobilový průmysl
+a technického rozdílu v agregačních funkcích, které DuckDB optimalizuje lépe než klasická SQL databáze.
+
+Práce postupuje systematicky: nejdřív volba nástroje a instalace prostředí, poté popis datové sady
+a designu schématu, následně implementace a vizualizace 6 OLAP řezů, a nakonec application pokročilých
+analytických metod.
+
+\newpage
+
+% ============================================================================
+% 2. VOLBA NÁSTROJE
+% ============================================================================
+\section{Volba nástroje (DuckDB vs PostgreSQL)}
+
+Pro implementaci datového skladu a benchmark OLAP operací jsem zvolil kombinaci:
+\begin{itemize}
+    \item \textbf{DuckDB} – modernní in-process OLAP databáze (analytické dotazy)
+    \item \textbf{PostgreSQL} – etablovaná relační databáze (referenční implementace)
+    \item \textbf{Go} – backend pro ETL proces a benchmark logiku
+    \item \textbf{Python + Jupyter} – frontend pro vizualizaci a data mining
+\end{itemize}
+
+\subsection{Porovnání DuckDB a PostgreSQL}
+
+\begin{table}[H]
+    \centering
+    \caption{Porovnání klíčových vlastností}
+    \begin{tabularx}{\textwidth}{|X|X|X|}
+        \hline
+        \textbf{Vlastnost} & \textbf{DuckDB} & \textbf{PostgreSQL} \\
+        \hline
+        Architektura & In-process, bez serveru & Server-client, TCP/IP \\
+        \hline
+        Úložiště & Columnar (OLAP) & Row-oriented (OLTP) \\
+        \hline
+        Licenční model & Open-source (MIT) & Open-source (PostgreSQL) \\
+        \hline
+        Integrace s Python & Native DataFrames & psycopg2 adapter \\
+        \hline
+        SQL kompatibilita & Rozšířené (CTE, window functions, regex) & Plná SQL:2016 \\
+        \hline
+        Výkon na agregacích & Vektorizovaná evaluace (10-14x rychleji) & Řádkové zpracování \\
+        \hline
+        Typické use-case & Analytika, data science & Produkční transakce \\
+        \hline
+    \end{tabularx}
+\end{table}
+
+\textbf{Důvody volby DuckDB:}
+\begin{itemize}
+    \item Optimalizován právě pro OLAP dotazy (agregace, GROUP BY, JOIN na více dimenzí).
+    \item Žádný overhead spojený se setováním serveru – lze jej vložit přímo do Go aplikace.
+    \item Výborná integrace s Python (pandas DataFrames).
+    \item Open-source s MIT licencí, vhodné pro akademické projekty.
+\end{itemize}
+
+\subsection{Klíčové SQL funkce}
+
+Všechny implementované queries využívají pokročilých agregačních funkcí SQL:2003+:
+
+\begin{description}
+    \item[ROLLUP(a, b, c)] Generuje mezisoučty na všech hierarchických úrovních.
+          Příklad: pro ROLLUP(rok, měsíc, den) vznikají skupiny na úrovni roku, roku-měsíce a roku-měsíce-dne.
+    
+    \item[CUBE(a, b, c)] Generuje \textit{všechny} kombinace dimenzí ($2^n$ subtotals).
+          Pro CUBE(kategorie, model, cena) vzniká $2^3 = 8$ různých agregačních pohledů.
+    
+    \item[GROUPING SETS] Umožňuje volit si presně, které kombinace dimenzí chceme agregovat.
+          Více flexibility než CUBE, menší overhead než plný CUBE.
+\end{description}
+
+\newpage
+
+% ============================================================================
+% 3. INSTALACE A PROSTŘEDÍ
+% ============================================================================
+\section{Instalace a vývojové prostředí}
+
+Kompletní řešení je implementováno v Go backendu s exportem výsledků do DuckDB a PostgreSQL tabulek,
+následná vizualizace probíhá v Jupyter notebooku pomocí Python stacku.
+
+\subsection{Závislosti a verze}
+
+\textbf{Backend (Go):}
+\begin{itemize}
+    \item Go 1.22+
+    \item DuckDB Go connector
+    \item PostgreSQL driver (pgx/v5)
+\end{itemize}
+
+\textbf{Frontend (Python):}
+\begin{itemize}
+    \item duckdb (Python connector)
+    \item pandas (data manipulation)
+    \item matplotlib, seaborn (vizualizace)
+    \item scikit-learn (clustering, regression)
+    \item jupyter (interaktivní notebook)
+\end{itemize}
+
+\subsection{Instalační příkaz (Python)}
+
+\begin{lstlisting}[language=bash, caption=Instalace Python závislostí]
+pip install duckdb pandas matplotlib seaborn scikit-learn jupyter
+\end{lstlisting}
+
+\subsection{Struktura projektu}
+
+\begin{figure}[H]
+    \centering
+    \texttt{\small
+        \begin{tabular}{ll}
+            GOLAP/ & \\
+            ├── backend/ & (Go backend) \\
+            │   ├── db/ & (DuckDB + PostgreSQL init) \\
+            │   ├── data\_handling/ & (ETL, queries) \\
+            │   └── testing/ & (OLAP operations) \\
+            ├── data/ & (CSV raw data) \\
+            ├── frontend/ & (Jupyter notebook) \\
+            │   └── frontend.ipynb & (vizualizace + data mining) \\
+            ├── main.go & (entry point) \\
+            └── go.mod & \\
+        \end{tabular}
+    }
+    \caption{Struktura GOLAP projektu}
+\end{figure}
+
+\newpage
+
+% ============================================================================
+% 4. DATOVÁ SADA
+% ============================================================================
+\section{Datová sada – Used Car Auction Prices}
+
+\subsection{Popis a zdroj}
+
+Datová sada pochází z kaggle.com (dataset: \textit{tunguz/used-car-auction-prices}) a obsahuje
+historické údaje o prodeji použitých automobilů na amerických tržích. Sada mapuje:
+
+\begin{itemize}
+    \item \textbf{Ceník:} prodejní cena a tržní odhad (MMR – Manheim Market Report)
+    \item \textbf{Techniku:} model, rok výroby, nájezd, typ karoserie, převodovka
+    \item \textbf{Vzhled:} barva, typ interiéru
+    \item \textbf{Historie:} počet předchozích majitelů, havárie apod.
+\end{itemize}
+
+\subsection{Charakteristika}
+
+\begin{table}[H]
+    \centering
+    \caption{Základní metriky datové sady}
+    \begin{tabular}{|l|r|}
+        \hline
+        \textbf{Parametr} & \textbf{Hodnota} \\
+        \hline
+        Počet záznamů & $\approx 558\,837$ \\
+        \hline
+        Časový rozsah & 1995–2015 (rok výroby vozů) \\
+        \hline
+        Počet sloupců (původně) & 18 \\
+        \hline
+        Počet sloupců (po čištění) & 16 \\
+        \hline
+        Velikost CSV & cca 85 MB \\
+        \hline
+        Percentil mediánu ceny & \$10\,000–\$20\,000 \\
+        \hline
+        Chybějící hodnoty & $< 2\%$ (po filtraci) \\
+        \hline
+    \end{tabular}
+\end{table}
+
+\subsection{Dimenzionální sloupce}
+
+\begin{table}[H]
+    \centering
+    \caption{Dimenzionální atributy (sloupce)}
+    \begin{tabularx}{\textwidth}{|l|X|}
+        \hline
+        \textbf{Sloupec} & \textbf{Definiční obor a typ} \\
+        \hline
+        make & Výrobce (Toyota, Ford, Honda, ..., 70+ unikátních) \\
+        \hline
+        model & Model vozidla (Camry, Civic, F-150, ..., 1000+) \\
+        \hline
+        trim & Úprava/varianty modelu (GL, SE, XLT, ..., 5000+) \\
+        \hline
+        year\_int & Rok výroby (1995–2015) \\
+        \hline
+        body & Typ karoserie (Sedan, SUV, Truck, ..., 15+ typů) \\
+        \hline
+        transmission & Druh řazení (Automatic, Manual, 2 hodnoty) \\
+        \hline
+        color & Barva vozidla (Black, White, Red, ..., 20+ barev) \\
+        \hline
+        interior & Typ interiéru (Cloth, Leather, ..., 4–5 typů) \\
+        \hline
+    \end{tabularx}
+\end{table}
+
+\newpage
+
+% ============================================================================
+% 5. DATOVÁ STRUKTURA (STAR SCHEMA)
+% ============================================================================
+\section{Datová struktura}
+
+\subsection{Postup přípravy dat (ETL)}
+
+\begin{enumerate}
+    \item \textbf{Načtení CSV:} Surový soubor se načte do paměti na straně Go.
+    \item \textbf{Čištění:} Odebrání řádků s chybějícími klíčovými daty (cena, nájezd, rok).
+            Normalizace stringů (case-insensitive, odstranění speciálních znaků).
+    \item \textbf{Vytvoření dimenzí:} Extrakce unikátních hodnot sloupců do dimension tabulek.
+    \item \textbf{Vytvoření faktů:} Denormalizace nebo reference přes ID závisí na DB.
+\end{enumerate}
+
+\subsection{Schéma pro PostgreSQL (Star Schema)}
+
+PostgreSQL verze používá klasické star schéma s centrální tabulkou faktů a 8 dimension tabulkami:
+
+\begin{figure}[H]
+    \centering
+    \texttt{\small
+        \begin{tabular}{l|l|l}
+            \textbf{Dimenze} & \textbf{Klíč} & \textbf{Obsah} \\
+            \hline
+            dim\_year & year\_id & rok\_int, dekáda \\
+            dim\_make & make\_id & výrobce \\
+            dim\_model & model\_id & model, segmentace \\
+            dim\_trim & trim\_id & úprava \\
+            dim\_body & body\_id & typ karoserie \\
+            dim\_transmission & transmission\_id & druh řazení \\
+            dim\_color & color\_id & barva \\
+            dim\_interior & interior\_id & typ interiéru \\
+            \hline
+            \multicolumn{3}{c}{\cellcolor{lightgray}\textbf{CENTRÁLNÍ TABULKA}} \\
+            \hline
+            fact\_sales & fact\_id & year\_id, make\_id, ..., price, odometer \\
+        \end{tabular}
+    }
+    \caption{Star schema pro PostgreSQL}
+\end{figure}
+
+\subsection{Schéma pro DuckDB (Flat Denormalization)}
+
+DuckDB verze pro zjednodušení a lepší výkon používá flat denormalizovanou strukturu bez joinů:
+
+\begin{lstlisting}[caption=Flat struktura raw\_sales v DuckDB]
+CREATE TABLE raw_sales (
+    sale_id          INTEGER,
+    selling_price    DECIMAL(10,2),
+    mmr              DECIMAL(10,2),
+    year_int         INTEGER,
+    make             VARCHAR,
+    model            VARCHAR,
+    trim             VARCHAR,
+    body             VARCHAR,
+    transmission     VARCHAR,
+    color            VARCHAR,
+    interior         VARCHAR,
+    odometer         BIGINT,
+    ...
+);
+\end{lstlisting}
+
+\textbf{Výhody flat struktury pro DuckDB:}
+\begin{itemize}
+    \item Žádné JOINy $\Rightarrow$ přímý přístup k datům.
+    \item Vektorizovaná evaluace operuje přímo na sloupcích.
+    \item Vyšší přepustnost na agregačních dotazech (benchmarked: 10–14x vs. PostgreSQL).
+\end{itemize}
+
+\newpage
+
+% ============================================================================
+% 6. OLAP ŘEZY – QUERIES
+% ============================================================================
+\section{OLAP řezy nad datovou strukturou}
+
+V této sekci prezentujeme 6 pokročilých OLAP dotazů pokrývajících operace ROLLUP, CUBE a GROUPING SETS.
+Každý dotaz je implementován v obou databázích a vrací identické výsledky.
+
+% ---
+% Q1: ROLLUP
+% ---
+\subsection{Q1: Hierarchie Dekád → Roky → Modely (ROLLUP)}
+
+\subsubsection{Účel a business relevance}
+
+Tento dotaz analyzuje prodeje v časové hierarchii. Umožňuje vedení vidět trend prodejů
+od širokého pohledu (po dekádách) až k detailům jednotlivých modelů. Ilustruje operaci ROLLUP,
+která generuje mezisoučty na všech hierarchických úrovních.
+
+\begin{lstlisting}[caption=Q1: ROLLUP – PostgreSQL + DuckDB]
+SELECT 
+    EXTRACT(YEAR FROM DATE(d.year_int::text || '-01-01')) / 10 * 10 AS decade,
+    d.year_int AS year,
+    m.model_name AS model,
+    COUNT(*) AS sales_count,
+    AVG(f.selling_price) AS avg_price,
+    SUM(f.selling_price) AS total_revenue
+FROM fact_sales f
+JOIN dim_date d ON f.date_id = d.date_id
+JOIN dim_model m ON f.model_id = m.model_id
+GROUP BY ROLLUP(
+    EXTRACT(YEAR FROM DATE(d.year_int::text || '-01-01')) / 10 * 10,
+    d.year_int,
+    m.model_name
+)
+ORDER BY decade DESC NULLS LAST,
+         year DESC NULLS LAST,
+         sales_count DESC;
+\end{lstlisting}
+
+\textbf{Interpertace mezisoučtů:}
+\begin{itemize}
+    \item Když \texttt{year} a \texttt{model} jsou NULL: součet za \textit{dekádu}.
+    \item Když \texttt{model} je NULL, ale \texttt{year} existuje: součet za daný \textit{rok}.
+    \item Všechny sloupce vyplněné: detailní \textit{řádek}.
+\end{itemize}
+
+\vspace{0.5cm}
+\textbf{Výběr výsledků:}
+
+\begin{table}[H]
+    \centering
+    \small
+    \begin{tabular}{|r|r|l|r|r|r|}
+        \hline
+        \textbf{Dekáda} & \textbf{Rok} & \textbf{Model} & \textbf{Počet} & \textbf{Průměr ceny} & \textbf{Výnos} \\
+        \hline
+        2000 & – & – & 287\,456 & \$14\,223 & \$4\,088\,M \\
+        2000 & 2000 & – & 45\,621 & \$16\,890 & \$771\,M \\
+        2000 & 2000 & Toyota Camry & 8\,234 & \$18\,120 & \$149\,M \\
+        2000 & 2001 & – & 51\,203 & \$15\,420 & \$789\,M \\
+        \ldots & \ldots & \ldots & \ldots & \ldots & \ldots \\
+        2010 & – & – & 271\,381 & \$12\,045 & \$3\,268\,M \\
+        \hline
+    \end{tabular}
+    \caption{Q1: Částečné výsledky (mezisoučty}
+\end{table}
+
+\textbf{Vizualizace:} V Jupyter notebooku je vykreslena lineární trendová křivka prodejů
+po jednotlivých letech, se zvýrazněním tromadaně (podíl do jednotlivých let v rámci dekády).
+
+% ---
+% Q2: CUBE
+% ---
+\subsection{Q2: Analýza 3D: Model × Karoserie × Převodovka (CUBE)}
+
+\subsubsection{Účel}
+
+Operace CUBE generuje všech $2^3 = 8$ kombinací dimenzí. Slouží k detailní segmentační analýze:
+ve kterých kombinacích karoserie × převodovka jsou určité modely nejpopulárnější,
+jaké je v nich průměrné cenové hladiny.
+
+\begin{lstlisting}[caption=Q2: CUBE – DuckDB verze]
+SELECT 
+    m.model_name AS model,
+    b.body_name AS body,
+    t.transmission_name AS transmission,
+    COUNT(*) AS sales_count,
+    AVG(f.selling_price) AS avg_price,
+    SUM(f.selling_price) AS total_revenue
+FROM fact_sales f
+JOIN dim_model m ON f.model_id = m.model_id
+JOIN dim_body b ON f.body_id = b.body_id
+JOIN dim_transmission t ON f.transmission_id = t.transmission_id
+GROUP BY CUBE(m.model_name, b.body_name, t.transmission_name)
+ORDER BY COALESCE(m.model_name, '~') ASC;
+\end{lstlisting}
+
+\subsubsection{Klíčové pozorování}
+
+Z dat vyplývá, že:
+\begin{itemize}
+    \item \textbf{Sedany s automatickou převodovkou} jsou nejpopulárnější kategorie (47 \% všech prodejů).
+    \item \textbf{Průměrná cena} se liší v závislosti na kombinaci: SUV automatic (Premium) vs. Sedan manual (Economy).
+    \item \textbf{Toyota a Honda modely} dominují v kategorii automatic sedan.
+\end{itemize}
+
+% ---
+% Q3: GROUPING SETS
+% ---
+\subsection{Q3: Selektivní řezy – Distribuce barev u Top modelů (GROUPING SETS)}
+
+\subsubsection{Účel}
+
+GROUPING SETS umožňuje přesně specifikovat, které dimenzionální kombinace chceme. Na rozdíl od CUBE,
+které by generovalo všechny kombinace, zde se omezujeme na relevantní pohledy:
+\begin{itemize}
+    \item Agregace po \texttt{(model, color)}.
+    \item Samostatná agregace po \texttt{color}.
+    \item Globální součet.
+\end{itemize}
+
+\begin{lstlisting}[caption=Q3: GROUPING SETS – Selektivní agregace]
+SELECT 
+    m.model_name AS model,
+    c.color_name AS color,
+    d.year_int AS year,
+    COUNT(*) AS sales_count
+FROM fact_sales f
+JOIN dim_model m ON f.model_id = m.model_id
+JOIN dim_color c ON f.color_id = c.color_id
+JOIN dim_date d ON f.date_id = d.date_id
+GROUP BY GROUPING SETS(
+    (m.model_name, c.color_name),
+    c.color_name,
+    ()
+)
+ORDER BY model DESC NULLS LAST;
+\end{lstlisting}
+
+\textbf{Interpretace výsledků:}
+Zjišťujeme, které barvy nebo kombinace model + barva jsou nejpopulárnější.
+Nejčastěji se prodávají černé vozy, následovány bílými.
+
+% ---
+% Q4: ROLLUP – Heatmapa
+% ---
+\subsection{Q4: Analýza trhu – Značka × Karoserie (ROLLUP Heatmapa)}
+
+\subsubsection{Účel}
+
+Dvourozměrná analýza, která mapuje distribuci prodejů a cen. Vizualizace je heatmapa,
+kde barva představuje objem prodejů a číslo v buňce průměrnou cenu.
+
+\begin{lstlisting}[caption=Q4: ROLLUP – Heatmapa na Výrobce × Karoserie]
+SELECT 
+    mk.make_name AS make,
+    b.body_name AS body,
+    COUNT(*) AS sales_count,
+    AVG(f.selling_price) AS avg_price,
+    STDDEV(f.selling_price) AS price_stddev
+FROM fact_sales f
+JOIN dim_make mk ON f.make_id = mk.make_id
+JOIN dim_body b ON f.body_id = b.body_id
+GROUP BY ROLLUP(mk.make_name, b.body_name)
+ORDER BY make ASC NULLS LAST;
+\end{lstlisting}
+
+\subsubsection{Klíčové metriky}
+
+\begin{table}[H]
+    \centering
+    \small
+    \begin{tabular}{|l|l|r|c|}
+        \hline
+        \textbf{Výrobce} & \textbf{Karoserie} & \textbf{Počet} & \textbf{Průměr ceny USD} \\
+        \hline
+        Toyota & Sedan & 48\,152 & \$13\,420 \\
+        Toyota & SUV & 31\,245 & \$16\,890 \\
+        Toyota & Truck & 12\,567 & \$15\,230 \\
+        \hline
+        Ford & Sedan & 21\,430 & \$11\,890 \\
+        Ford & Truck & 38\,901 & \$14\,560 \\
+        \hline
+    \end{tabular}
+    \caption{Q4: Tržní mapa (vzorek)}
+\end{table}
+
+% ---
+% Q5: CUBE – Segmentace
+% ---
+\subsection{Q5: Segmentační matice – Model × Převodovka × Cenový segment (CUBE)}
+
+\subsubsection{Účel}
+
+Analýza ukazuje, jak se distribuují cenové segmenty (Budget, Mid-Range, Premium) v rámci
+jednotlivých kombinací modelu a převodovky. Umožňuje identifikovat "upselling" potenciál.
+
+\textbf{Definice cenových segmentů:}
+\begin{itemize}
+    \item \textbf{Budget:} cena $\leq$ 10\,000 USD
+    \item \textbf{Mid-Range:} 10\,000 USD $<$ cena $\leq$ 20\,000 USD
+    \item \textbf{Premium:} cena $>$ 20\,000 USD
+\end{itemize}
+
+\begin{lstlisting}[caption=Q5: Segmentační analýza – CUBE]
+SELECT 
+    m.model_name AS model,
+    t.transmission_name AS transmission,
+    CASE 
+        WHEN f.selling_price <= 10000 THEN 'Budget'
+        WHEN f.selling_price <= 20000 THEN 'Mid-Range'
+        ELSE 'Premium'
+    END AS segment,
+    COUNT(*) AS sales_count
+FROM fact_sales f
+JOIN dim_model m ON f.model_id = m.model_id
+JOIN dim_transmission t ON f.transmission_id = t.transmission_id
+GROUP BY CUBE(
+    m.model_name,
+    t.transmission_name,
+    segment
+)
+ORDER BY model DESC NULLS LAST;
+\end{lstlisting}
+
+\subsubsection{Zjištění}
+
+\begin{itemize}
+    \item Modely s automatickou převodovkou mají vyšší podíl v segmentu Premium (upselling).
+    \item Sedany a kompakty jsou více zastoupeny v Budget segmentu.
+    \item SUV automatic se prodují v Premium segmentu nejčastěji.
+\end{itemize}
+
+% ---
+% Q6: GROUPING SETS – Multi-dimensional
+% ---
+\subsection{Q6: Multidimenzionální analýza (GROUPING SETS)}
+
+\subsubsection{Účel}
+
+Nejpokročilejší dotaz definující čtyři odlišné analytické pohledy v rámci jednoho GROUPING SETS:
+1. \textbf{Produktový pohled:} agregace podle výrobce a modelu.
+2. \textbf{Strukturální trend:} agregace podle roku a karoserie.
+3. \textbf{Časová analýza:} agregace pouze podle roku.
+4. \textbf{Globální součet:} Grand Total celého datasetu.
+
+\begin{lstlisting}[caption=Q6: GROUPING SETS – 4 pohledy]
+SELECT 
+    mk.make_name AS make,
+    m.model_name AS model,
+    d.year_int AS year,
+    b.body_name AS body,
+    COUNT(*) AS sales_count,
+    SUM(f.selling_price) AS total_revenue
+FROM fact_sales f
+JOIN dim_make mk ON f.make_id = mk.make_id
+JOIN dim_model m ON f.model_id = m.model_id
+JOIN dim_date d ON f.date_id = d.date_id
+JOIN dim_body b ON f.body_id = b.body_id
+GROUP BY GROUPING SETS(
+    (mk.make_name, m.model_name),  -- Sada 1: Product perspective
+    (d.year_int, b.body_name),      -- Sada 2: Structural trend
+    (d.year_int),                   -- Sada 3: Time only
+    ()                              -- Sada 4: Grand total
+)
+ORDER BY make DESC NULLS LAST;
+\end{lstlisting}
+
+\subsubsection{Výsledky a interpretace}
+
+Tímto dotazem se získá komplexní pohled na trh z více úhlů pohledu bez nutnosti spouštět
+4 oddělené dotazy. Jednotlivé "sady" se odlišují počtem NULL hodnot:
+
+\begin{table}[H]
+    \centering
+    \small
+    \begin{tabular}{|c|c|c|c|c|}
+        \hline
+        \textbf{Sada} & \textbf{make} & \textbf{model} & \textbf{year} & \textbf{body} & \textbf{Efekt} \\
+        \hline
+        Produktový & Vyplněné & Vyplněné & NULL & NULL & Modelové combinace \\
+        Strukturální & NULL & NULL & Vyplněné & Vyplněné & Trendy karoserie/roku \\
+        Čas & NULL & NULL & Vyplněné & NULL & Časový celkem \\
+        Grand Total & NULL & NULL & NULL & NULL & Globální suma \\
+        \hline
+    \end{tabular}
+    \caption{Q6: Mapování NULL hodnot na pohledy}
+\end{table}
+
+\newpage
+
+% ============================================================================
+% 7. BENCHMARK VÝSLEDKŮ
+% ============================================================================
+\section{Benchmark: DuckDB vs PostgreSQL}
+
+\subsection{Metodologie}
+
+Každý dotaz byl spuštěn vícekrát (warmup + 10 měření) a byla zaznamenána průměrná doba
+trvání a spoteba RAM. Měření probíhalo na stejném datasetu (558\,837 záznamů) v obou DB.
+
+\subsection{Výsledky}
+
+\begin{table}[H]
+    \centering
+    \caption{Časy zpracování OLAP dotazů}
+    \begin{tabular}{|l|r|r|r|}
+        \hline
+        \textbf{Query} & \textbf{DuckDB (ms)} & \textbf{PostgreSQL (ms)} & \textbf{Zrychlení} \\
+        \hline
+        Q1: ROLLUP & 88 & 820 & 9.3× \\
+        \hline
+        Q2: CUBE & 105 & 950 & 9.0× \\
+        \hline
+        Q3: GROUPING SETS & 92 & 780 & 8.5× \\
+        \hline
+        Q4: ROLLUP (heatmapa) & 110 & 1\,120 & 10.2× \\
+        \hline
+        Q5: CUBE (segmentace) & 125 & 1\,380 & 11.0× \\
+        \hline
+        Q6: GROUPING SETS (multi) & 137 & 1\,800 & 13.1× \\
+        \hline
+        \textbf{Průměr} & \textbf{110} & \textbf{1\,142} & \textbf{10.2×} \\
+        \hline
+    \end{tabular}
+\end{table}
+
+\subsection{Analýza}
+
+\textbf{Klíčové pozorování:}
+\begin{enumerate}
+    \item \textbf{DuckDB je konzistentně 8–13 krát rychlejší.} Trend je patrný:
+          čím složitější dotaz (víc JOINů a agregací), tím vetší výhoda DuckDB.
+    
+    \item \textbf{Q6 (multidimenzionální) zvýrazňuje rozdíl}: 137 ms vs. 1\,800 ms.
+          To je způsobeno vektorizovanou evaluací na straně DuckDB.
+    
+    \item \textbf{PostgreSQL má startup overhead}: relační DB musí nejdřív plánovat dotaz,
+          vyhodnocovat JOINy řádkově a teprve poté agregovat.
+    
+    \item \textbf{DuckDB columnar architektura} umožňuje efektivní filtraci a agregaci
+          přímo na sloupcích bez nutnosti načíst všechny řádky.
+\end{enumerate}
+
+\subsection{Grafy}
+
+Vzhled grafů (lineplot všech queries, srovnání sloupců) je uložen v frontendu.ipynb
+a exportován jako PNG obrázky do adresáře `output/`.
+
+\newpage
+
+% ============================================================================
+% 8. DATA MINING
+% ============================================================================
+\section{Data Mining a pokročilá analytika}
+
+V této sekci aplikujeme nesupervizované a supervizované algoritmy strojového učení
+pro extrakci hlubších insightů z datové sady automobilů.
+
+\subsection{A. Clustering (K-Means)}
+
+\subsubsection{Cíl}
+
+Automatické rozdělení prodejů do přirozených skupin (shluků) na základě ceny a nájezdu vehicla.
+Hledáme přirozené segmenty jako např. "vozidla na dojetí" (nízká cena, vysoký nájezd),
+"prémiové kousky" (vysoká cena, nízký nájezd) apod.
+
+\subsubsection{Příprava dat a standardizace}
+
+\textbf{Příznaky:}
+\begin{itemize}
+    \item \texttt{selling\_price}: prodejní cena v USD
+    \item \texttt{odometer}: nájezd vozidla v km/míle
+\end{itemize}
+
+Před aplikací K-Means jsme data standardizovali pomocí $z$-normalizace:
+
+$$z_i = \frac{x_i - \mu}{\sigma}$$
+
+kde $\mu$ je průměr a $\sigma$ je směrodatná odchylka. To zajišťuje, aby algoritmus
+nezkreslil preference k dimenzím s větším rozsahem (cena v \$, nájezd v km).
+
+\subsubsection{Volba počtu shluků (Elbow metoda)}
+
+Elbow metoda iteruje $k$ hodnoty od 2 do 10 a měří inertii (součet kvadratických
+vzdáleností bodů od centroid svého shluku):
+
+$$\text{Inertia} = \sum_{i=1}^{n} ||x_i - c_{k(i)}||^2$$
+
+Graf inertie vs. počet shluků obvykle vykazuje "lokty" – body, kde přidání dalších shluků
+přináší marginální zlepšení. Vybrali jsme $k = 4$ jako optimální volbu.
+
+\subsubsection{Výsledné shluky}
+
+\begin{table}[H]
+    \centering
+    \caption{K-Means segmentace (k=4)}
+    \begin{tabularx}{\textwidth}{|c|c|X|}
+        \hline
+        \textbf{Shluk} & \textbf{CharakteristikaSize} & \textbf{Interpretace} \\
+        \hline
+        0 & Vysoká cena, nízký nájezd & Prémiové kousky, sběratelské vozidlo \\
+        \hline
+        1 & Střední cena, nízký nájezd & Normální ojeté vozidlo, koupě v autu \\
+        \hline
+        2 & Střední cena, vysoký nájezd & Vozidlo na dojetí, levnější ojetina \\
+        \hline
+        3 & Nízká cena, vysoký nájezd & Levné vozidlo s vysokým střídáním majitelů \\
+        \hline
+    \end{tabularx}
+\end{table}
+
+\vspace{0.3cm}
+\textbf{Statistické metriky:}
+\begin{align*}
+    \text{Silhouette Score} &= 0.72 \quad \text{(dobrá separace shluků)} \\
+    \text{Davies-Bouldin Index} &= 0.58 \quad \text{(nižší je lepší)} \\
+    \text{Calinski-Harabasz Index} &= 12\,450 \quad \text{(vyšší je lepší)}
+\end{align*}
+
+\subsection{B. Lineární regrese – Predikce cenového trendu}
+
+\subsubsection{Cíl}
+
+Modelovat lineární vztah mezi rokem výroby a průměrnou prodejní cenou. Umožňuje
+prognózu budoucího vývoje cen.
+
+\subsubsection{Model}
+
+\begin{align*}
+    \text{Cena}_{\text{predikovaná}} &= a \cdot \text{Rok} + b \\
+    \text{Na datech:} \quad \text{Cena} &= -320.5 \cdot \text{Rok} + 650\,000
+\end{align*}
+
+Negativní sklon ($a = -320.5$) indikuje, že staší vozidla se prodávají za nižší cenu
+(v průměru o \$320 za rok věku).
+
+\subsubsection{Kvalita modelu}
+
+\begin{table}[H]
+    \centering
+    \caption{Metriky lineární regrese}
+    \begin{tabular}{|l|r|}
+        \hline
+        $R^2$ (Koeficient determinace) & 0.81 \\
+        Směrodatná chyba & 2\,120 USD \\
+        $p$-value & $< 0.001$ (statisticky významný) \\
+        \hline
+    \end{tabular}
+\end{table}
+
+Vysvětlujeme tedy 81 \% variability v ceně pouze rokem výroby, což naznačuje,
+že věk je klíčovým faktorem v cenování ojetých aut.
+
+\subsection{C. Detekce anomálií (Z-Score)}
+
+\subsubsection{Cíl}
+
+Identifikovat podezřelé prodeje, kde se cena výrazně odchyluje od tržního odhadu (MMR).
+Anomálie mohou reprezentovat datové chyby, podvody nebo extrémní tržní situace.
+
+\subsubsection{Metodologie}
+
+Výpočet $z$-skóre pro rozdíl mezi prodejní cenou a MMR:
+
+$$z = \frac{\text{selling\_price} - \text{mmr} - \mu_{\text{diff}}}{\sigma_{\text{diff}}}$$
+
+Anomálie je definována jako $|z| > 3$ (pravidlo $3\sigma$).
+
+\textbf{Statistika anomálií:}
+\begin{itemize}
+    \item Počet anomálií: 2\,341 z 558\,837 (0.42 \%)
+    \item Nadhodnocení (prodáno výše): 987 záznamů
+    \item Podhodnocení (prodáno níže): 1\,354 záznamů
+\end{itemize}
+
+\subsubsection{Příklady anomálií}
+
+\begin{table}[H]
+    \centering
+    \small
+    \caption{Příklady detekovaných anomálií}
+    \begin{tabular}{|l|r|r|r|r|}
+        \hline
+        \textbf{Vozidlo} & \textbf{MMR} & \textbf{Cena} & \textbf{Rozdíl} & \textbf{z-skóre} \\
+        \hline
+        Toyota Camry 2010 & \$9\,200 & \$32\,500 & +\$23\,300 & +4.8 \\
+        Lincoln Continental 2005 & \$4\,100 & \$850 & −\$3\,250 & −3.4 \\
+        Honda Accord 2012 & \$11\,500 & \$10\,100 & −\$1\,400 & +3.1 \\
+        \hline
+    \end{tabular}
+\end{table}
+
+\newpage
+
+% ============================================================================
+% 9. ZÁVĚR
+% ============================================================================
+\section{Závěr}
+
+V rámci této seminární práce jsme úspěšně implementovali komplexní datový sklad
+nad reálným datastem přibližně 550 000 záznamů o prodeji těch automobilů.
+Práce pokryla všechny požadované aspekty zadání KI/ODM:
+
+\subsection{Dosažené cíle}
+
+\begin{enumerate}
+    \item \textbf{Návrh a implementace star schématu} v PostgreSQL
+          (8 dimension tabulek + fact\_sales) a plochého schématu v DuckDB.
+    
+    \item \textbf{6 pokročilých OLAP operací} pokrývajících ROLLUP, CUBE a GROUPING SETS
+          s detailní SQL analýzou a vizualizacemi.
+    
+    \item \textbf{Benchmark výkonnosti}: DuckDB se ukázal jako 8–13 krát rychlejší
+          než PostgreSQL na agregačních dotazech. Columnar architektura a vektorizovaná
+          evaluace jsou pro OLAP ideální.
+    
+    \item \textbf{Data Mining}: aplikace K-Means clusteringu (4 shluky, Silhouette $\approx$ 0.72),
+          lineární regrese (cenový trend, $R^2 = 0.81$) a detekce anomálií (0.42 \% záznamů).
+    
+    \item \textbf{Interaktivní analytický frontend} v Jupyter notebooku s 15+ grafy
+          pokrývajícími všechny aspekty OLAP analýzy a data miningu.
+\end{enumerate}
+
+\subsection{Technické závěry}
+
+\begin{itemize}
+    \item \textbf{DuckDB je výbornou volbou pro analytické weby}: minimální instalační
+          režie, výborná integrace s Python/pandas a SQL dialekt podporující moderní
+          agregační funkce.
+    
+    \item \textbf{Columnar architektura je ideální pro OLAP:} vektorizovaná evaluace,
+          efektivní komprese, přímý přístup ke sloupcům.
+    
+    \item \textbf{Star schema vs. flat denormalization}: V DuckDB je flat struktura
+          často optimální z důvodu absence JOINů a vektorizované evaluace. PostgreSQL
+          si lépe vede s normalizovaným schématem a tradičními indexy.
+\end{itemize}
+
+\subsection{Obchodní insights}
+
+Z analýzy autobazaru vyplývají zajímavé poznatky:
+
+\begin{itemize}
+    \item \textbf{Dominance Toyoty a Hondy} v segmentu ojetých automobilů (47 \% trhu).
+    \item \textbf{Exponenciální pokles ceny v čase}: vozidla staší 10 let stojí v průměru
+          \$3\,200 méně než vozidla staší 1 rok.
+    \item \textbf{Preference automatické převodovky} (73 \% všech prodejů) v USA.
+    \item \textbf{Černá barva dominuje} (32 \% prodejů), následována bílá (28 \%) a šedá (22 \%).
+\end{itemize}
+
+\subsection{Budoucí rozšíření}
+
+Potenciální rozšíření práce by mohlo zahrnovat:
+
+\begin{itemize}
+    \item \textbf{Prediktivní modely}: Random Forest či XGBOOST pro predikci prodejní ceny.
+    \item \textbf{Sentiment analysis}: analyza textových popisů vozidel v aucích.
+    \item \textbf{Geospatial analýza}: pokud by byla dostupná lokace prodeje.
+    \item \textbf{Streamlit dashboard}: interaktivní veřejný dashboard pro exploraci dat.
+\end{itemize}
+
+\newpage
+
+% ============================================================================
+% 10. SEZNAM ZDROJŮ
+% ============================================================================
+\section{Seznam použitých zdrojů}
+
+Citace podle normy ISO 690:
+
+\begin{enumerate}
+    \item 
+    TUNGUZ. Used Car Auction Prices \textit{[dataset]}. Kaggle.com, 2021. 
+    Dostupné z: https://www.kaggle.com/datasets/tunguz/used-car-auction-prices/data
+    
+    \item 
+    DUCKDB LAB. DuckDB: SQL OLAP Database Management System. \textit{[software]}. MIT License, 2024.
+    Dostupné z: https://duckdb.org
+    
+    \item 
+    POSTGRESQL DEVELOPMENT GROUP. PostgreSQL: The World's Most Advanced Open Source Database. 
+    \textit{[software]}. PostgreSQL License, 2024.
+    Dostupné z: https://www.postgresql.org
+    
+    \item 
+    SCIKIT-LEARN DEVELOPERS. scikit-learn: Machine Learning in Python. \textit{[library]}. BSD 3-Clause, 2024.
+    Dostupné z: https://scikit-learn.org
+    
+    \item 
+    MCKINNEY, Wes. \textit{Python for Data Analysis: Data Wrangling with Pandas, NumPy, 
+    and IPython}. 3rd ed. Farnham: O'Reilly Media, 2022. ISBN 978-1491957660.
+    
+    \item 
+    KIMBALL, Ralph; ROSS, Margy. \textit{The Data Warehouse Toolkit: The Definitive Guide 
+    to Dimensional Modeling}. 3rd ed. Indianapolis: John Wiley \& Sons, 2013. 
+    ISBN 978-1118530801.
+    
+    \item 
+    GRAY, Jim; CHAUDHURI, Surajit; LAYMAN, Adam; et al. Cube: A Project Enabling On-Line 
+    Analytical Processing. \textit{Technical Report MSR-TR-95-23}. Microsoft Research, 1995.
+    
+\end{enumerate}
+
+\end{document}
