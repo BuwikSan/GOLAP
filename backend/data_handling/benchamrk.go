@@ -22,25 +22,29 @@ func (b *BenchmarkRunner) runQuery(sql string, db SQLOverhead) (result string, d
 	return output, duration, err
 }
 
-func (b *BenchmarkRunner) runQueriesFromList(queryList []string, db SQLOverhead, queryNames []string, headers [][]string, saveToFile bool) {
+func (b *BenchmarkRunner) runQueriesFromList(queryList []string, db SQLOverhead, queryNames []string, headers [][]string, saveToFile bool) []string {
 	var count int = 0
 
 	// Create output directory if it doesn't exist
 	outputDir := "./data/saved_queries"
 	os.MkdirAll(outputDir, 0755)
 
+	outputCollection := []string{}
+
 	for i, query := range queryList {
 		output, duration, _ := b.runQuery(query, db)
 
 		// Print nicely formatted benchmark result
-		fmt.Printf("  [%d] %s: %s\n", i+1, queryNames[count], duration)
 
-		filename := fmt.Sprintf("%s/%s_%s.csv", outputDir, db.String(), queryNames[count])
+		outputCollection = append(outputCollection, fmt.Sprintf("  [%d] %s: %s", i+1, queryNames[count], duration))
+
 		if saveToFile {
+			filename := fmt.Sprintf("%s/%s_%s.csv", outputDir, db.String(), queryNames[count])
 			_ = TableAsStringToCSV(output, db, filename, headers[count])
 		}
 		count++
 	}
+	return outputCollection
 }
 
 func (b *BenchmarkRunner) RunBenchmark(saveToFile bool) {
@@ -77,9 +81,12 @@ func (b *BenchmarkRunner) RunBenchmark(saveToFile bool) {
 		queryHeaders = append(queryHeaders, GetQueryHeaders(i))
 	}
 
-	fmt.Println("\n📊 PostgreSQL Benchmark Results:")
-	b.runQueriesFromList(postgresQueryList, b.Postgres, queryNames, queryHeaders, saveToFile)
+	postgresTimes := b.runQueriesFromList(postgresQueryList, b.Postgres, queryNames, queryHeaders, saveToFile)
+	duckTimes := b.runQueriesFromList(duckdbQueryList, b.DuckDB, queryNames, queryHeaders, saveToFile)
 
-	fmt.Println("\n📊 DuckDB Benchmark Results:")
-	b.runQueriesFromList(duckdbQueryList, b.DuckDB, queryNames, queryHeaders, saveToFile)
+	for i := 0; i < len(queryNames); i++ {
+		fmt.Printf("%d. Query comparison:\n", i)
+		fmt.Printf("  Postgres: %s\n", postgresTimes[i])
+		fmt.Printf("  DuckDB: %s\n", duckTimes[i])
+	}
 }

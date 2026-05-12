@@ -28,7 +28,7 @@ func main() {
 
 	// main line
 	var includeDatabasesAndBenchmarksFalg bool = true // Pokud je false, přeskočíme databáze a jdeme jen na CSV porovnání
-	var saveToDuckAndCSVFlag bool = true
+	var saveToDuckAndCSVFlag bool = false
 
 	// database connections
 	var duckDB SQLOverhead
