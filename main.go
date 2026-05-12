@@ -20,15 +20,15 @@ func main() {
 	// config variables -----------------------------------------------------
 	var runInicializationFlag bool = false // je na kurevsky dlouho cca 8 min kvuli postgres fillu
 	// db testing (done)
-	var compareDBContentsFlag bool = false
+	var compareDBContentsFlag bool = true
 
 	//testingFlag queries // querries už mají totožné výstupy není nutno
-	var testingFlag bool = false
-	var customQueriesFlag bool = false
+	var testingFlag bool = true
+	var customQueriesFlag bool = true
 
 	// main line
 	var includeDatabasesAndBenchmarksFalg bool = true // Pokud je false, přeskočíme databáze a jdeme jen na CSV porovnání
-	var saveToDuckAndCSVFlag bool = false
+	var saveToDuckAndCSVFlag bool = true
 
 	// database connections
 	var duckDB SQLOverhead
